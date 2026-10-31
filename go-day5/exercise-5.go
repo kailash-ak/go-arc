@@ -3,21 +3,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
-	"context"
 )
-func worker(ctx context.Context){
-	ticker:=time.NewTicker(800*time.Millisecond)
+
+func worker(ctx context.Context) {
+	ticker := time.NewTicker(800 * time.Millisecond)
 	defer ticker.Stop()
-	for{
+	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("stopped",ctx.Err())
+			fmt.Println("stopped", ctx.Err())
 			return
-		
-	case <-ticker.C:
-		fmt.Println("working")
-	}
+
+		case <-ticker.C:
+			fmt.Println("working")
+		}
 	}
 }
