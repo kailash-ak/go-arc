@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"io"
 	"encoding/json"
+	"time"
+	"strings"
 )
 func homeHandler(w http.ResponseWriter, r *http.Request){
 	fmt.Fprintln(w,"home")
@@ -14,6 +16,7 @@ func healthHandler(w http.ResponseWriter,r *http.Request){
 	fmt.Fprintf(w,`{"status":"ok"}`)
 }
 func echoHandler(w http.ResponseWriter, r *http.Request){
+	r.Body = http.MaxBytesReader(w,r.Body,1<<20) // 1MB limit	
 	body,err:=io.ReadAll(r.Body)
 	if err!=nil{
 		log.Println(err)
@@ -41,6 +44,10 @@ func greetHandler(w http.ResponseWriter, r *http.Request){
 		http.Error(w,"Bad Request",http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(v.Name)==""{
+		http.Error(w,"Name field is required",http.StatusBadRequest)
+		return
+	}
 	response:=ResponseBody{
 		Message: fmt.Sprintf("Hello, %s!",v.Name),
 	}
@@ -63,6 +70,7 @@ func main(){
 	srv:= &http.Server{
 		Addr: ":8080",
 		Handler: mux,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Fatal(srv.ListenAndServe())
 
