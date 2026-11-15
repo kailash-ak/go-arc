@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"errors"
 	"fmt"
+	"mime"
+	"log"
 )
 
 type Handler struct{
@@ -34,31 +36,56 @@ type CreateURLResponse struct {
     Code    string `json:"code"`
     LongURL string `json:"longUrl"`
 }
+type ErrorResponse struct{
+	Error string `json:"error"`
+}
 
 func (h *Handler) CreateUrlHandler(w http.ResponseWriter, r *http.Request){
 	var req CreateUrlRequest
+	contentType:=r.Header.Get("Content-Type")
+	mediaType,_,err2:=mime.ParseMediaType(contentType)// here _= params
+	
+	if err2!=nil || mediaType!="application/json"{
+		writeError(w,http.StatusUnsupportedMediaType,"unsupported media type ")
+		return
+	}
+	//if contentType!="application/json" {// here clients sometimes send like this Content-Type: application/json; charset=utf-8
+		//so ur logic fails(commented) so for this use mime library
+		//http.Error(w,"UnSupported Media type",StatusUnsupportedMediaType)
+		//return
+	//}
+	maxUploadSize:=int64(1<<20) // which interprets it as int 
+	r.Body=http.MaxBytesReader(w,r.Body,maxUploadSize) // but maxBytesReader expects int64 so cast it
+
 	err:=json.NewDecoder(r.Body).Decode(&req)
 	if err!=nil{
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		var maxByteError *http.MaxBytesError
+		if errors.As(err,&maxByteError){
+			writeError(w,http.StatusRequestEntityTooLarge,"request body exceeds 1 mb limit ")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err1:= validateURL(req.LongUrl); err1!=nil{
-		http.Error(w,err1.Error(),http.StatusBadRequest)
+		writeError(w,http.StatusBadRequest,err1.Error())
 		return
 	}
 	shortCode,e:=h.store.Create(req.LongUrl)
 	if e!=nil{
-		http.Error(w,"Error at store",http.StatusInternalServerError)
+		writeError(w,http.StatusInternalServerError,"Error at store")
 		return
 	}
 	
-	w.Header().Set("Content-Type","application/json")
-	w.WriteHeader(http.StatusCreated)
+	//w.Header().Set("Content-Type","application/json")
+	//w.WriteHeader(http.StatusCreated)
 	response:=CreateURLResponse{
 		Code:shortCode,
 		LongURL:req.LongUrl,
 	}
-	json.NewEncoder(w).Encode(response)
+	w.Header().Set("Location","/urls/"+shortCode)
+	//json.NewEncoder(w).Encode(response)
+	writeJson(w,http.StatusCreated,response)
 }
 
 func (h *Handler) GetURLHandler(w http.ResponseWriter, r *http.Request){
@@ -76,9 +103,10 @@ func (h *Handler) GetURLHandler(w http.ResponseWriter, r *http.Request){
 			Code:shortcode,
 			LongURL:url,
 		}
-		w.Header().Set("Content-Type","application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
+		writeJson(w,http.StatusOK,response)
+		//w.Header().Set("Content-Type","application/json")
+		//w.WriteHeader(http.StatusOK)
+		//json.NewEncoder(w).Encode(response)
 
 	}
 
@@ -90,9 +118,10 @@ func (h *Handler)ListURLsHandler(w http.ResponseWriter, r *http.Request){
 	// Return HTTP 200 OK.
 	// Encode the returned slice using json.NewEncoder(w).
 	urls:=h.store.List()
-	w.Header().Set("Content-Type","application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(urls)
+	//w.Header().Set("Content-Type","application/json")
+	//w.WriteHeader(http.StatusOK)
+	//json.NewEncoder(w).Encode(urls)
+	writeJson(w,http.StatusOK,urls)
 }
 
 func(h *Handler) DeleteURLHandler(w http.ResponseWriter, r *http.Request){
@@ -132,4 +161,32 @@ func validateURL(input string) error{
 		return errors.New("invalid hostname")
 	}
 	return nil
+}
+func writeError(w http.ResponseWriter, status int, message string){
+	// 	Set Content-Type to application/json.
+	// Write the supplied HTTP status.
+	// Create an ErrorResponse.
+	// Encode it into the response.
+	//here refactor the code to use writejson for the below ones
+	// w.Header().Set("Content-Type","application/json")
+	// w.WriteHeader(status)
+	errResponse:=ErrorResponse{
+		Error:message,
+	}
+	writeJson(w,status,errResponse)
+	// json.NewEncoder(w).Encode(errResponse)
+}
+
+func writeJson(w http.ResponseWriter, status int, v any){
+	// Set Content-Type
+    // Write HTTP status
+    // Encode v into the response
+    // Handle encoding/writing error
+	w.Header().Set("Content-Type","application/json")
+	w.WriteHeader(status)
+	err:=json.NewEncoder(w).Encode(v)
+	if err!=nil{
+		log.Printf("failed to encode the json: %v",err)
+		
+	}
 }
